@@ -115,10 +115,14 @@ export default function App() {
       return;
     }
 
-    if (!asrSupported) {
+    if (!asrSupported || !isSecure) {
       setPendingSpeaker(speaker);
       setShowTextInput(true);
-      setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
+      setStatusMsg(
+        !isSecure
+          ? 'Для голосового ввода нужен HTTPS или localhost. Используйте текстовый ввод.'
+          : 'Голосовой ввод недоступен. Используйте текстовый ввод.'
+      );
       return;
     }
 
@@ -147,19 +151,23 @@ export default function App() {
         processTranscript(text, currentSpeakerRef.current);
       },
       onError: (err) => {
-        setErrorMsg(
-          err === 'not-allowed'
-            ? '🔒 Нет доступа к микрофону. Разрешите в настройках браузера.'
-            : err === 'no-speech'
+        const isPermissionIssue = err === 'not-allowed' || err === 'service-not-allowed';
+        if (isPermissionIssue) {
+          setPendingSpeaker(currentSpeakerRef.current);
+          setShowTextInput(true);
+          setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
+        } else {
+          setErrorMsg(
+            err === 'no-speech'
               ? '🔇 Речь не обнаружена. Попробуйте ещё раз.'
               : `Ошибка: ${err}`,
-        );
+          );
+        }
         setAppState('idle');
-        setStatusMsg('Нажмите кнопку говорящего');
         setInterimText('');
       },
     });
-  }, [appState, inputMode, asrSupported, langA, langB, startListening, processTranscript]);
+  }, [appState, inputMode, asrSupported, isSecure, langA, langB, startListening, processTranscript]);
 
   const handleTextSubmit = useCallback((text: string) => {
     setShowTextInput(false);
