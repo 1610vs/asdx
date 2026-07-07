@@ -7,6 +7,7 @@ import { useTTS } from './hooks/useTTS';
 import { WaveformAnimation } from './components/WaveformAnimation';
 import { LanguageSelector } from './components/LanguageSelector';
 import { TurnCard } from './components/TurnCard';
+import { TextInput } from './components/TextInput';
 
 const DEFAULT_LANG_A = getLang('ru-RU');
 const DEFAULT_LANG_B = getLang('en-US');
@@ -22,6 +23,9 @@ export default function App() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [ttsRate, setTtsRate] = useState(0.95);
   const [showSettings, setShowSettings] = useState(false);
+  const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
+  const [showTextInput, setShowTextInput] = useState(false);
+  const [pendingSpeaker, setPendingSpeaker] = useState<'A' | 'B' | null>(null);
 
   const currentSpeakerRef = useRef<'A' | 'B'>('A');
   const transcriptRef = useRef('');
@@ -30,12 +34,22 @@ export default function App() {
   const { isSupported: asrSupported, isListening, startListening, stopListening } = useSpeechRecognition();
   const { isSupported: ttsSupported, speak, stop: stopTTS } = useTTS();
 
-  // Auto-scroll history
+  const isSecure = typeof window !== 'undefined' && (
+    window.location.protocol === 'https:' || window.location.hostname === 'localhost'
+  );
+
   useEffect(() => {
     if (historyRef.current) {
       historyRef.current.scrollTop = historyRef.current.scrollHeight;
     }
   }, [turns, interimText]);
+
+  useEffect(() => {
+    if (!asrSupported && inputMode === 'voice') {
+      setInputMode('text');
+      setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
+    }
+  }, [asrSupported, inputMode]);
 
   const processTranscript = useCallback(async (
     text: string,
@@ -52,7 +66,7 @@ export default function App() {
     setErrorMsg('');
 
     const fromLang = speaker === 'A' ? langA : langB;
-    const toLang   = speaker === 'A' ? langB : langA;
+    const toLang = speaker === 'A' ? langB : langA;
 
     try {
       const translated = await translateText(
@@ -85,7 +99,8 @@ export default function App() {
         setAppState('idle');
         setStatusMsg('Нажмите кнопку говорящего');
       }
-    } catch {
+    } catch (err) {
+      console.error('Translation error:', err);
       setErrorMsg('Ошибка перевода. Проверьте интернет.');
       setAppState('idle');
       setStatusMsg('Нажмите кнопку говорящего');
@@ -94,6 +109,12 @@ export default function App() {
 
   const startSpeaking = useCallback((speaker: 'A' | 'B') => {
     if (appState !== 'idle') return;
+
+    if (inputMode === 'text' || !asrSupported) {
+      setPendingSpeaker(speaker);
+      setShowTextInput(true);
+      return;
+    }
 
     currentSpeakerRef.current = speaker;
     transcriptRef.current = '';
@@ -116,7 +137,6 @@ export default function App() {
         }
       },
       onEnd: () => {
-        // Called when recognition stops (natural silence or stopListening())
         const text = transcriptRef.current;
         processTranscript(text, currentSpeakerRef.current);
       },
@@ -125,26 +145,43 @@ export default function App() {
           err === 'not-allowed'
             ? '🔒 Нет доступа к микрофону. Разрешите в настройках браузера.'
             : err === 'no-speech'
-            ? '🔇 Речь не обнаружена. Попробуйте ещё раз.'
-            : `Ошибка: ${err}`,
+              ? '🔇 Речь не обнаружена. Попробуйте ещё раз.'
+              : `Ошибка: ${err}`,
         );
         setAppState('idle');
         setStatusMsg('Нажмите кнопку говорящего');
         setInterimText('');
       },
     });
-  }, [appState, langA, langB, startListening, processTranscript]);
+  }, [appState, inputMode, asrSupported, langA, langB, startListening, processTranscript]);
+
+  const handleTextSubmit = useCallback((text: string) => {
+    setShowTextInput(false);
+    setPendingSpeaker(null);
+    processTranscript(text, pendingSpeaker ?? currentSpeakerRef.current);
+  }, [pendingSpeaker, processTranscript]);
+
+  const handleTextCancel = useCallback(() => {
+    setShowTextInput(false);
+    setPendingSpeaker(null);
+    setErrorMsg('');
+    setAppState('idle');
+    setStatusMsg('Нажмите кнопку говорящего');
+  }, []);
 
   const handleStop = useCallback(() => {
     if (appState === 'listening_a' || appState === 'listening_b') {
       stopListening();
-      // onEnd will be triggered → processTranscript
     } else if (appState === 'speaking') {
       stopTTS();
       setAppState('idle');
       setStatusMsg('Нажмите кнопку говорящего');
+    } else if (showTextInput) {
+      setShowTextInput(false);
+      setPendingSpeaker(null);
+      setStatusMsg('Нажмите кнопку говорящего');
     }
-  }, [appState, stopListening, stopTTS]);
+  }, [appState, showTextInput, stopListening, stopTTS]);
 
   const replayTurn = useCallback((turn: Turn) => {
     if (appState !== 'idle') return;
@@ -170,11 +207,8 @@ export default function App() {
 
   const isBusy = appState !== 'idle';
 
-  // ─── UI ────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col select-none">
-
-      {/* ── Header ── */}
       <header className="flex items-center justify-between px-4 pt-safe-top pt-3 pb-3 border-b border-slate-700/60 bg-slate-900/90 backdrop-blur sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🌐</span>
@@ -209,7 +243,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* ── Settings panel ── */}
       {showSettings && (
         <div className="bg-slate-800/90 border-b border-slate-700/60 px-4 py-3 space-y-3">
           <div className="flex items-center justify-between">
@@ -225,6 +258,7 @@ export default function App() {
               }`} />
             </button>
           </div>
+
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-300 whitespace-nowrap">Скорость речи</span>
             <input
@@ -235,6 +269,35 @@ export default function App() {
             />
             <span className="text-sm text-slate-400 w-8 text-right">{ttsRate.toFixed(2)}</span>
           </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-slate-300 whitespace-nowrap">Режим ввода</span>
+            <div className="flex rounded-xl border border-slate-700 overflow-hidden">
+              <button
+                onClick={() => setInputMode('voice')}
+                disabled={!asrSupported}
+                className={`px-3 py-2 text-sm transition-colors ${
+                  inputMode === 'voice' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300'
+                } ${!asrSupported ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                Голос
+              </button>
+              <button
+                onClick={() => setInputMode('text')}
+                className={`px-3 py-2 text-sm transition-colors ${
+                  inputMode === 'text' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300'
+                }`}
+              >
+                Текст
+              </button>
+            </div>
+          </div>
+
+          {!isSecure && (
+            <p className="text-xs text-amber-400">
+              ⚠️ Для голосового ввода нужен HTTPS или localhost.
+            </p>
+          )}
           {!asrSupported && (
             <p className="text-xs text-amber-400">
               ⚠️ Web Speech API не поддерживается в этом браузере. Используйте Chrome или Safari.
@@ -247,7 +310,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Language Bar ── */}
       <div className="flex items-center justify-center gap-3 px-4 py-3 bg-slate-800/50 border-b border-slate-700/40">
         <LanguageSelector
           value={langA}
@@ -278,7 +340,6 @@ export default function App() {
         />
       </div>
 
-      {/* ── Conversation History ── */}
       <div
         ref={historyRef}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-1"
@@ -308,7 +369,6 @@ export default function App() {
           <TurnCard key={turn.id} turn={turn} onReplay={replayTurn} />
         ))}
 
-        {/* Interim text bubble */}
         {interimText && (
           <div className={`flex ${currentSpeakerRef.current === 'A' ? 'justify-start' : 'justify-end'} mb-2`}>
             <div className={`
@@ -325,16 +385,13 @@ export default function App() {
         )}
       </div>
 
-      {/* ── Status Bar ── */}
       <div className="px-4 py-2 bg-slate-800/60 border-t border-slate-700/40">
-        {/* Waveform */}
         <WaveformAnimation
           isActive={isListening}
           color={currentSpeakerRef.current === 'A' ? '#60a5fa' : '#34d399'}
           bars={20}
         />
 
-        {/* Status message */}
         <div className="text-center mt-1 mb-2 min-h-[20px]">
           {errorMsg ? (
             <p className="text-xs text-red-400">{errorMsg}</p>
@@ -354,10 +411,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Main Buttons ── */}
       <div className="px-4 pb-safe-bottom pb-6 pt-4 bg-slate-900 border-t border-slate-700/60">
-
-        {/* Stop button (shown when busy) */}
         {isBusy && (
           <div className="flex justify-center mb-4">
             <button
@@ -372,10 +426,7 @@ export default function App() {
           </div>
         )}
 
-        {/* A / B buttons */}
         <div className="flex gap-4 justify-center">
-
-          {/* Speaker A Button */}
           <button
             onClick={() => {
               if (appState === 'listening_a') {
@@ -406,7 +457,6 @@ export default function App() {
             <span className="text-slate-400 text-xs">{langA.flag} {langA.label}</span>
           </button>
 
-          {/* Speaker B Button */}
           <button
             onClick={() => {
               if (appState === 'listening_b') {
@@ -436,14 +486,21 @@ export default function App() {
             </span>
             <span className="text-slate-400 text-xs">{langB.flag} {langB.label}</span>
           </button>
-
         </div>
 
-        {/* Jabra tip */}
         <p className="text-center text-[10px] text-slate-600 mt-3">
           Работает с Bluetooth (Jabra Speak 510 и др.) · Chrome / Safari
         </p>
       </div>
+
+      {showTextInput && pendingSpeaker && (
+        <TextInput
+          speaker={pendingSpeaker}
+          language={pendingSpeaker === 'A' ? langA : langB}
+          onSubmit={handleTextSubmit}
+          onCancel={handleTextCancel}
+        />
+      )}
     </div>
   );
 }
