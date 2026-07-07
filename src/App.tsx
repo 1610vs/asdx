@@ -46,7 +46,6 @@ export default function App() {
 
   useEffect(() => {
     if (!asrSupported && inputMode === 'voice') {
-      setInputMode('text');
       setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
     }
   }, [asrSupported, inputMode]);
@@ -110,9 +109,16 @@ export default function App() {
   const startSpeaking = useCallback((speaker: 'A' | 'B') => {
     if (appState !== 'idle') return;
 
-    if (inputMode === 'text' || !asrSupported) {
+    if (inputMode === 'text') {
       setPendingSpeaker(speaker);
       setShowTextInput(true);
+      return;
+    }
+
+    if (!asrSupported) {
+      setPendingSpeaker(speaker);
+      setShowTextInput(true);
+      setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
       return;
     }
 
