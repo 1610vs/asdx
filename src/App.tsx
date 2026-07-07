@@ -23,7 +23,11 @@ export default function App() {
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [ttsRate, setTtsRate] = useState(0.95);
   const [showSettings, setShowSettings] = useState(false);
-  const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
+  const [inputMode, setInputMode] = useState<'voice' | 'text'>(() => {
+    if (typeof window === 'undefined') return 'voice';
+    const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(window.navigator.userAgent);
+    return isMobileBrowser ? 'text' : 'voice';
+  });
   const [showTextInput, setShowTextInput] = useState(false);
   const [pendingSpeaker, setPendingSpeaker] = useState<'A' | 'B' | null>(null);
 
