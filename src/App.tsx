@@ -45,6 +45,13 @@ export default function App() {
   }, [turns, interimText]);
 
   useEffect(() => {
+    const isMobileBrowser = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobileBrowser) {
+      setInputMode('text');
+      setStatusMsg('На мобильных браузерах голосовой ввод может быть ограничен. Используйте текстовый ввод.');
+      return;
+    }
+
     if (!asrSupported && inputMode === 'voice') {
       setStatusMsg('Голосовой ввод недоступен. Используйте текстовый ввод.');
     }
